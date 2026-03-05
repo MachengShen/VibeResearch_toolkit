@@ -23,6 +23,11 @@ Commands:
 Instances:
   - default: $DEFAULT_ENV_FILE (state: $DEFAULT_STATE_DIR)
   - extra:   $INSTANCES_ENV_DIR/<name>.env (state: $INSTANCES_STATE_ROOT/<name>)
+
+Restart safety:
+  - restart is blocked when target instance state contains active runs
+    (conversation agentRun.status=running)
+  - override once (unsafe): CODEX_RELAY_RESTART_FORCE=1 codex-discord-relay-multictl restart <name|all>
 USAGE
 }
 
@@ -80,6 +85,97 @@ running_pid_for() {
     return 0
   fi
   return 1
+}
+
+running_agent_runs_for() {
+  local name="$1"
+  local state_dir sessions_file
+  state_dir="$(state_dir_for "$name")"
+  sessions_file="$state_dir/sessions.json"
+  [[ -f "$sessions_file" ]] || return 0
+
+  python3 - "$sessions_file" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        obj = json.load(fh)
+except Exception:
+    print("__STATE_PARSE_ERROR__")
+    raise SystemExit(0)
+
+sessions = obj.get("sessions", obj if isinstance(obj, dict) else {})
+if not isinstance(sessions, dict):
+    raise SystemExit(0)
+
+for conversation_key, session in sessions.items():
+    if not isinstance(session, dict):
+        continue
+    agent_run = session.get("agentRun")
+    if not isinstance(agent_run, dict):
+        continue
+    status = str(agent_run.get("status") or "").strip().lower()
+    if status != "running":
+        continue
+    started_at = str(agent_run.get("startedAt") or agent_run.get("queuedAt") or "")
+    provider = str(agent_run.get("provider") or "")
+    reason = str(agent_run.get("reason") or "")
+    print(f"{conversation_key}\t{started_at}\t{provider}\t{reason}")
+PY
+}
+
+restart_guard_for_instance() {
+  local name="$1"
+  local rows state_dir sessions_file
+  state_dir="$(state_dir_for "$name")"
+  sessions_file="$state_dir/sessions.json"
+  rows="$(running_agent_runs_for "$name" || true)"
+  [[ -n "$rows" ]] || return 0
+
+  if grep -qx "__STATE_PARSE_ERROR__" <<<"$rows"; then
+    echo "relay[$name] restart blocked: unable to parse state file: $sessions_file" >&2
+    return 1
+  fi
+
+  echo "relay[$name] restart blocked: active conversation run(s) detected:" >&2
+  while IFS=$'\t' read -r conversation started provider reason; do
+    [[ -n "${conversation:-}" ]] || continue
+    echo "  - conversation=$conversation status=running started=${started:-unknown} provider=${provider:-unknown} reason=${reason:-request}" >&2
+  done <<<"$rows"
+  return 1
+}
+
+check_restart_guard() {
+  local target="${1:-all}"
+  local blocked=0 name
+
+  if [[ "${CODEX_RELAY_RESTART_FORCE:-0}" == "1" ]]; then
+    echo "warning: bypassing restart drain guard (CODEX_RELAY_RESTART_FORCE=1)" >&2
+    return 0
+  fi
+
+  if [[ "$target" == "all" || -z "$target" ]]; then
+    while IFS= read -r name; do
+      [[ -n "$name" ]] || continue
+      if ! restart_guard_for_instance "$name"; then
+        blocked=1
+      fi
+    done < <(instances)
+  else
+    if ! restart_guard_for_instance "$target"; then
+      blocked=1
+    fi
+  fi
+
+  if [[ "$blocked" -ne 0 ]]; then
+    echo "Refusing restart to avoid interrupting active runs." >&2
+    echo "Wait for runs to finish, or cancel/reset affected conversations first." >&2
+    echo "Override once (unsafe): CODEX_RELAY_RESTART_FORCE=1 codex-discord-relay-multictl restart ${target:-all}" >&2
+    return 1
+  fi
+  return 0
 }
 
 cmd="${1:-list}"
@@ -157,6 +253,9 @@ case "$cmd" in
     ;;
 
   restart)
+    if ! check_restart_guard "$arg"; then
+      exit 4
+    fi
     if [[ "$arg" == "all" || -z "$arg" ]]; then
       "$0" stop all || true
       "$0" start all
@@ -189,4 +288,3 @@ case "$cmd" in
     exit 2
     ;;
 esac
-

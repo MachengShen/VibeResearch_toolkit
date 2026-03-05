@@ -35,8 +35,23 @@ sudo ./bootstrap.sh
 
 - Keep changes focused and scoped to one concern.
 - Add/update docs when behavior or defaults change.
-- Run `bash scripts/lint_repo.sh` before opening a PR.
-- Include verification evidence in the PR description.
+- Run required checks before opening a PR:
+
+```bash
+bash scripts/lint_repo.sh
+bash scripts/essential_exec_check.sh
+```
+
+- Include verification evidence in the PR description:
+  - CI artifact URL for `reports/essential_exec/**`, or
+  - local `reports/essential_exec/<timestamp>/{summary.json,suite_log.md}` paths.
+- Use `.github/pull_request_template.md` and complete the reviewer checklist.
+- For runtime-impacting relay changes, include manual runtime evidence for:
+  - watched-job + `thenTask` flow
+  - artifact-gating behavior
+  - wait-loop guard behavior
+  - visibility heartbeat/degraded behavior
+  - restart-recovery behavior
 
 ## Adding or updating packaged skills
 

@@ -77,6 +77,27 @@
     },
     "error": {
       "type": "string"
+    },
+    "error_type": {
+      "type": "string",
+      "enum": [
+        "oom",
+        "nan",
+        "data_missing",
+        "dependency_missing",
+        "disk_full",
+        "permission",
+        "timeout",
+        "interrupted",
+        "config_error",
+        "unknown"
+      ]
+    },
+    "error_hint": {
+      "type": "string"
+    },
+    "error_signature": {
+      "type": "string"
     }
   },
   "additionalProperties": true

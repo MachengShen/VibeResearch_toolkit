@@ -10,10 +10,16 @@ This repository combines:
 
 ## Stable Release
 
-- Current stable release: `v1.0.1`
+- Current stable release: `v1.1.1`
 - Release metadata:
   - `VERSION`
   - `CHANGELOG.md`
+
+## Latest Design Feature (v1.1.1)
+
+- **Privacy-hardened release surface**: machine-local continuity/state artifacts are now intended to stay local (`.gitignore` + release cleanup), so public tags avoid leaking personal project paths/history.
+- **Cleaner Discord updates**: durable progress can suppress low-signal system milestones with `RELAY_PROGRESS_PERSISTENT_SUPPRESS_SYSTEM_MILESTONES=true`, reducing interleaving noise with assistant responses.
+- **Relay-native supervisor contract**: long jobs can launch with `job_start.supervisor` so callback follow-ups are gated by explicit state/artifact checks instead of best-effort process exit handling.
 
 ## Why This Is Built For ML Researchers
 
@@ -25,7 +31,7 @@ Most agent tooling optimizes for one-shot automation. Research work is iterative
 - **Relay Callback design**: long jobs can auto-enqueue analysis tasks on completion, so experiments continue without manual babysitting.
 - **Hypothesis-driven skill stack**: bundled skills bias toward discriminative experiments and structured ablations, not trivial “try random settings” loops.
 - **Parallel experiment isolation**: git worktrees make branch-per-hypothesis and parallel ablations clean and reversible.
-- **Persistent research memory**: `WORKING_MEMORY.md` + append-only `HANDOFF_LOG.md` preserve continuity across agents/sessions.
+- **Persistent research memory**: local continuity artifacts (`docs/WORKING_MEMORY.md`, `HANDOFF_LOG.md`) preserve cross-session context without being published in releases.
 - **Operational observability**: `/status`, `/task list`, `/job list`, logs, and callback traces expose real run state.
 - **Reproducible machine state**: export/apply scripts keep relay + env setup portable across machines.
 
@@ -124,13 +130,27 @@ Then DM your relay bot in Discord and run `/status`.
 5. Inspect results and update memory:
    - `/handoff --commit` (optional)
 
+## Mandatory Skill Map (Workflow)
+
+For relay + ML workflow changes, use this minimum skill mapping:
+
+- New capability/change request: `requirements-intake-for-ml-research`
+- Long-running experiment launch: `relay-long-task-callback` + `ml-run-contract-enforcer`
+- PR validation/evidence writing: `pr-acceptance-tests-writer`
+- Runtime robustness verification: `robustness-execution-suite-runner`
+- Overnight failure triage: `incident-triage-playbook`
+- Pre-release hardening: `release-hardening-checklist`
+- Session continuity updates: `experiment-working-memory-handoff`
+
+Rule of thumb: do not keep foreground `sleep + tail` monitor loops in normal turns; use callback jobs (`job_start + watch + thenTask`) and keep foreground turns short.
+
 ## Relay Callback Pattern (Why it matters)
 
 For long training/eval/sweep jobs, use relay actions so completion triggers analysis automatically.
 
 ```text
 [[relay-actions]]
-{"actions":[{"type":"job_start","description":"maze2d ablation seed=1","command":"bash scripts/run_ablation_seed1.sh","watch":{"everySec":120,"tailLines":80,"thenTask":"Analyze logs/maze2d_seed1.log and summarize final metrics, failures, and next experiment.","thenTaskDescription":"Analyze maze2d seed=1 results","runTasks":true}}]}
+{"actions":[{"type":"job_start","description":"baseline ablation seed=1","command":"bash scripts/run_ablation_seed1.sh","watch":{"everySec":300,"tailLines":30,"thenTask":"Analyze logs/ablation_seed1.log and summarize final metrics, failures, and next experiment.","thenTaskDescription":"Analyze seed=1 results","runTasks":true}}]}
 [[/relay-actions]]
 ```
 
@@ -150,8 +170,8 @@ This avoids dead time between run completion and interpretation.
 
 - User manual: `docs/USER_MANUAL.md`
 - ML design guide: `docs/ML_RESEARCH_DESIGN.md`
-- Working memory snapshot: `docs/WORKING_MEMORY.md`
-- Chronological handoff history: `HANDOFF_LOG.md`
+- Local working memory snapshot (gitignored): `docs/WORKING_MEMORY.md`
+- Local handoff history (gitignored): `HANDOFF_LOG.md`
 
 ## Development / CI
 
@@ -161,7 +181,30 @@ Run local lint:
 bash scripts/lint_repo.sh
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same lint on every push and pull request.
+Run the required execution gate (PR-equivalent):
+
+```bash
+bash scripts/essential_exec_check.sh
+```
+
+Validate generated summary schema:
+
+```bash
+summary="$(ls -1dt reports/essential_exec/*/summary.json | head -n1)"
+python3 tools/verification/check_summary.py --summary "$summary" --suite-log "$(dirname "$summary")/suite_log.md"
+```
+
+Run the extended robustness suite:
+
+```bash
+bash scripts/robustness_exec_suite.sh
+```
+
+CI (`.github/workflows/ci.yml`) runs lint + the required execution gate on every push and pull request.
+Nightly/manual robustness runs are defined in `.github/workflows/robustness-nightly.yml`.
+PR reviewer checklist references:
+- `.github/pull_request_template.md`
+- `docs/verification/PR_REVIEW_CHECKLIST.md`
 
 Lint enforces publishability invariants:
 - Bash headers and strict mode (`#!/usr/bin/env bash`, `set -euo pipefail`)

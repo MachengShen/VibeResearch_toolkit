@@ -19,10 +19,13 @@ version: 1.0
    - Keep one active run and at least one queued run unless the user requests a pause.
    - For very long runs (≥1000 epochs), default to checkpoints every 100 epochs unless instability appears.
    - Parse epoch summary lines from the training log; keep decision notes tied to exact epoch numbers.
+   - Use `metrics.json.error_type` (when available) for deterministic failure triage labels.
 5. **Decide** after each checkpoint window: continue, stop early, or branch to next ablation. State why.
 6. **Update handoff/work log** after every major action.
    - Include timestamp, log paths, latest epoch, and key metrics.
    - Keep entries concise; avoid repeating unchanged context.
+7. **Compare against registry history** before branching.
+   - Use `exp/registry.jsonl` + `tools/exp/report_registry.py` for run-table context.
 
 ## GPU Quick Status
 ```bash

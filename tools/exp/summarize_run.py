@@ -35,7 +35,13 @@ def command_to_string(command: Any) -> str:
     return " ".join(shlex.quote(str(part)) for part in command)
 
 
-def build_summary(run_dir: pathlib.Path, meta: dict[str, Any], metrics: dict[str, Any], top_n: int) -> str:
+def build_summary(
+    run_dir: pathlib.Path,
+    meta: dict[str, Any],
+    metrics: dict[str, Any],
+    top_n: int,
+    registry_path: pathlib.Path | None,
+) -> str:
     run_obj = metrics.get("run") if isinstance(metrics.get("run"), dict) else {}
     primary = metrics.get("primary") if isinstance(metrics.get("primary"), dict) else {}
     artifacts = metrics.get("artifacts") if isinstance(metrics.get("artifacts"), dict) else {}
@@ -49,7 +55,7 @@ def build_summary(run_dir: pathlib.Path, meta: dict[str, Any], metrics: dict[str
     metrics_path = artifacts.get("metrics") or str(run_dir / "metrics.json")
     log_path = artifacts.get("log") or str(run_dir / "train.log")
     meta_path = artifacts.get("meta") or str(run_dir / "meta.json")
-    registry_path = str(run_dir.parent.parent / "registry.jsonl")
+    registry_for_cmd = str(registry_path) if registry_path else "<path/to/registry.jsonl>"
 
     lines: list[str] = []
     lines.append(f"## Run `{run_id}`")
@@ -79,10 +85,13 @@ def build_summary(run_dir: pathlib.Path, meta: dict[str, Any], metrics: dict[str
     lines.append(f"python3 tools/exp/validate_metrics.py {shlex.quote(str(metrics_path))}")
     lines.append(
         "python3 tools/exp/append_registry.py "
-        f"--registry {shlex.quote(registry_path)} "
+        f"--registry {shlex.quote(registry_for_cmd)} "
         f"--run-dir {shlex.quote(str(run_dir))}"
     )
     lines.append("```")
+    if not registry_path:
+        lines.append("")
+        lines.append("- Note: provide `--registry` for a concrete append command path.")
     lines.append("")
     if isinstance(metrics.get("error"), str) and metrics.get("error"):
         lines.append("### Error")
@@ -95,6 +104,7 @@ def build_summary(run_dir: pathlib.Path, meta: dict[str, Any], metrics: dict[str
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True, type=pathlib.Path, help="Path to run directory")
+    parser.add_argument("--registry", type=pathlib.Path, help="Optional path to registry.jsonl for append command")
     parser.add_argument("--out-md", type=pathlib.Path, help="Write markdown output to this file")
     parser.add_argument("--append", action="store_true", help="Append to --out-md instead of overwrite")
     parser.add_argument("--top-n", type=int, default=8, help="Maximum numeric metrics to list")
@@ -124,7 +134,13 @@ def main() -> int:
         print("[summarize_run][fail] metrics.json must be an object", file=sys.stderr)
         return 1
 
-    summary_md = build_summary(run_dir, meta, metrics, max(args.top_n, 1))
+    summary_md = build_summary(
+        run_dir,
+        meta,
+        metrics,
+        max(args.top_n, 1),
+        args.registry.resolve() if args.registry else None,
+    )
 
     if args.out_md:
         args.out_md.parent.mkdir(parents=True, exist_ok=True)

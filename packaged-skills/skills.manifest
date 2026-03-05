@@ -2,8 +2,14 @@
 codex/codex-discord-relay-stuck-check
 codex/delegate-coding-tasks
 codex/discord-image-upload
+codex/incident-triage-playbook
+codex/ml-run-contract-enforcer
 codex/openclaw-media-send
 codex/periodic-mechanistic-service
+codex/pr-acceptance-tests-writer
+codex/release-hardening-checklist
 codex/relay-long-task-callback
+codex/requirements-intake-for-ml-research
+codex/robustness-execution-suite-runner
 codex/system-setup-context-awareness
 codex/tavily-search

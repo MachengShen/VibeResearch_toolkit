@@ -3,13 +3,16 @@ config/setup.env
 config/*.env
 *.env
 
-# Allow redacted machine snapshots to be tracked.
-!machine-state/**/*.env
+# Local continuity and machine-specific artifacts (keep local, never publish)
+HANDOFF_LOG.md
+docs/WORKING_MEMORY.md
+machine-state/
 
 # Runtime state
 *.log
 .tmp
 .DS_Store
+reports/
 
 # Node
 node_modules/

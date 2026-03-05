@@ -26,3 +26,45 @@ jobs:
 
       - name: Run repository lint
         run: bash scripts/lint_repo.sh
+
+  essential-exec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Install relay dependencies
+        run: npm ci --prefix codex-discord-relay
+
+      - name: Run essential execution checks
+        run: bash scripts/essential_exec_check.sh
+
+      - name: Validate essential summary schema
+        run: |
+          summary="$(ls -1dt reports/essential_exec/*/summary.json | head -n1)"
+          suite_log="$(dirname "$summary")/suite_log.md"
+          python3 tools/verification/check_summary.py --summary "$summary" --suite-log "$suite_log" --print-top-failures 10
+
+      - name: Upload essential execution artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: essential-exec-${{ github.run_id }}
+          path: reports/essential_exec
+          if-no-files-found: warn

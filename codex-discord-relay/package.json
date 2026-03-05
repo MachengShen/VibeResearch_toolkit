@@ -1,6 +1,6 @@
 {
   "name": "codex-discord-relay",
-  "version": "0.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "Direct Discord -> Codex CLI relay with per-channel session continuity.",
   "main": "relay.js",
