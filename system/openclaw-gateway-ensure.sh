@@ -43,6 +43,40 @@ timestamp() {
   date -Is
 }
 
+cli_version() {
+  "$OPENCLAW_BIN" --version 2>/dev/null | grep -oE '[0-9]{4}\.[0-9]+\.[0-9]+(-[0-9]+)?' | head -n 1 || true
+}
+
+gateway_app_version() {
+  local status_output
+  if command -v timeout >/dev/null 2>&1; then
+    status_output="$(timeout 20 "$OPENCLAW_BIN" status --all 2>/dev/null || true)"
+  else
+    status_output="$("$OPENCLAW_BIN" status --all 2>/dev/null || true)"
+  fi
+  printf '%s\n' "$status_output" | grep -oE 'app [0-9][^ ]*' | awk '{print $2}' | head -n 1 || true
+}
+
+start_gateway() {
+  local reason="${1:-unknown}"
+  echo "[$(timestamp)] gateway ensure starting/replacing gateway (reason: $reason; http: ${HTTP_PROXY:-none}; discord: $DISCORD_GATEWAY_PROXY)" >>"$START_LOG"
+  setsid -f env \
+    HTTP_PROXY="${HTTP_PROXY:-}" \
+    HTTPS_PROXY="${HTTPS_PROXY:-}" \
+    ALL_PROXY="${ALL_PROXY:-}" \
+    NO_PROXY="${NO_PROXY:-}" \
+    DISCORD_GATEWAY_PROXY="$DISCORD_GATEWAY_PROXY" \
+    "${NODE_OPTIONS_ARGS[@]}" \
+    "$OPENCLAW_BIN" gateway run --force --verbose >>"$RUNTIME_LOG" 2>&1
+
+  sleep 3
+  if "$OPENCLAW_BIN" gateway health >/dev/null 2>&1; then
+    echo "[$(timestamp)] gateway start verified" >>"$START_LOG"
+  else
+    echo "[$(timestamp)] gateway start attempted but health still failing" >>"$START_LOG"
+  fi
+}
+
 # Load persistent proxy settings when present.
 if [ -f "$PROXY_ENV_FILE" ]; then
   set -a
@@ -59,14 +93,6 @@ if [ -n "$PROXY_URL" ]; then
 fi
 export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,::1}"
 
-if pgrep -f '^openclaw-gateway' >/dev/null 2>&1; then
-  exit 0
-fi
-
-if "$OPENCLAW_BIN" gateway health >/dev/null 2>&1; then
-  exit 0
-fi
-
 DISCORD_GATEWAY_PROXY="${DISCORD_GATEWAY_PROXY:-${HTTP_PROXY:-$DISCORD_GATEWAY_PROXY_DEFAULT}}"
 
 NODE_OPTIONS_ARGS=()
@@ -74,19 +100,36 @@ if [ -n "$OPENCLAW_NODE_OPTIONS" ]; then
   NODE_OPTIONS_ARGS=(NODE_OPTIONS="$OPENCLAW_NODE_OPTIONS")
 fi
 
-echo "[$(timestamp)] gateway down; starting with persistent proxy env (http: ${HTTP_PROXY:-none}, discord: $DISCORD_GATEWAY_PROXY)" >>"$START_LOG"
-setsid -f env \
-  HTTP_PROXY="${HTTP_PROXY:-}" \
-  HTTPS_PROXY="${HTTPS_PROXY:-}" \
-  ALL_PROXY="${ALL_PROXY:-}" \
-  NO_PROXY="${NO_PROXY:-}" \
-  DISCORD_GATEWAY_PROXY="$DISCORD_GATEWAY_PROXY" \
-  "${NODE_OPTIONS_ARGS[@]}" \
-  "$OPENCLAW_BIN" gateway run --force --verbose >>"$RUNTIME_LOG" 2>&1
+running_gateway=0
+if pgrep -f '^openclaw-gateway' >/dev/null 2>&1; then
+  running_gateway=1
+fi
 
-sleep 3
+health_ok=0
 if "$OPENCLAW_BIN" gateway health >/dev/null 2>&1; then
-  echo "[$(timestamp)] gateway start verified" >>"$START_LOG"
+  health_ok=1
+fi
+
+desired_version="$(cli_version)"
+current_version=""
+if [ "$running_gateway" -eq 1 ]; then
+  current_version="$(gateway_app_version)"
+fi
+
+if [ "$running_gateway" -eq 1 ] && [ "$health_ok" -eq 1 ]; then
+  if [ -n "$desired_version" ] && [ -n "$current_version" ]; then
+    if [ "$desired_version" = "$current_version" ]; then
+      exit 0
+    fi
+    echo "[$(timestamp)] gateway version skew detected (cli=$desired_version gateway=$current_version); replacing gateway" >>"$START_LOG"
+    start_gateway "version-skew"
+    exit 0
+  fi
+  exit 0
+fi
+
+if [ "$running_gateway" -eq 1 ]; then
+  start_gateway "unhealthy-running-gateway"
 else
-  echo "[$(timestamp)] gateway start attempted but health still failing" >>"$START_LOG"
+  start_gateway "gateway-down"
 fi

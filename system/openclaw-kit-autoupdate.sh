@@ -23,6 +23,10 @@ log() {
   printf '[%s] %s\n' "$(date --iso-8601=seconds)" "$*" >>"$LOG_FILE"
 }
 
+git_safe() {
+  git -c "safe.directory=$KIT_REPO_DIR" "$@"
+}
+
 mkdir -p "$(dirname "$LOCK_FILE")"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -51,31 +55,31 @@ fi
 
 cd "$KIT_REPO_DIR"
 
-branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+branch="$(git_safe rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 if [[ -z "$branch" || "$branch" == "HEAD" ]]; then
-  log "auto-update skipped: detached HEAD"
+  log "auto-update skipped: detached HEAD or git access failed (repo=$KIT_REPO_DIR)"
   exit 0
 fi
 
-if [[ -n "$(git status --porcelain)" ]]; then
+if [[ -n "$(git_safe status --porcelain)" ]]; then
   log "auto-update skipped: local changes present in $KIT_REPO_DIR"
   exit 0
 fi
 
-before="$(git rev-parse HEAD)"
+before="$(git_safe rev-parse HEAD)"
 log "checking updates (repo=$KIT_REPO_DIR branch=$branch head=$before)"
 
-git fetch --prune origin "$branch" >>"$LOG_FILE" 2>&1
+git_safe fetch --prune origin "$branch" >>"$LOG_FILE" 2>&1
 remote_ref="origin/$branch"
-if ! git rev-parse --verify "$remote_ref" >/dev/null 2>&1; then
+if ! git_safe rev-parse --verify "$remote_ref" >/dev/null 2>&1; then
   log "auto-update failed: remote ref not found: $remote_ref"
   exit 1
 fi
 
-remote_head="$(git rev-parse "$remote_ref")"
+remote_head="$(git_safe rev-parse "$remote_ref")"
 if [[ "$before" != "$remote_head" ]]; then
-  git merge --ff-only "$remote_ref" >>"$LOG_FILE" 2>&1
-  after="$(git rev-parse HEAD)"
+  git_safe merge --ff-only "$remote_ref" >>"$LOG_FILE" 2>&1
+  after="$(git_safe rev-parse HEAD)"
   log "repository updated: $before -> $after"
 else
   log "repository already up-to-date: $before"
